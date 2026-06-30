@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Provenance Guard</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #1a1d27; --panel2: #232733; --border: #2e3342;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6c8cff;
+    --ai: #ff6b6b; --human: #36d399; --uncertain: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+  header h1 { margin: 0 0 4px; font-size: 28px; }
+  header p { margin: 0 0 28px; color: var(--muted); }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px; margin-bottom: 22px;
+  }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--muted); margin: 0 0 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  textarea, input[type=text] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 9px; padding: 11px 13px; font-size: 14px;
+    font-family: inherit; resize: vertical;
+  }
+  textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 9px;
+    padding: 11px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .examples { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .examples button { background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 11px; font-size: 12px; font-weight: 500; margin-right: 8px; }
+  .hidden { display: none; }
+
+  /* Transparency label */
+  .label {
+    border-radius: 12px; padding: 18px 20px; border: 1px solid; margin-bottom: 18px;
+  }
+  .label.ai       { background: rgba(255,107,107,.10); border-color: var(--ai); }
+  .label.human    { background: rgba(54,211,153,.10);  border-color: var(--human); }
+  .label.uncertain{ background: rgba(251,191,36,.10);  border-color: var(--uncertain); }
+  .label .head { font-size: 19px; font-weight: 700; margin-bottom: 6px; }
+  .label.ai .head { color: var(--ai); }
+  .label.human .head { color: var(--human); }
+  .label.uncertain .head { color: var(--uncertain); }
+  .label .body { font-size: 14px; color: var(--text); }
+
+  /* Confidence meter */
+  .meter-label { display: flex; justify-content: space-between; font-size: 13px;
+    color: var(--muted); margin-bottom: 6px; }
+  .meter { height: 10px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
+  .meter > span { display: block; height: 100%; border-radius: 6px; transition: width .4s; }
+
+  /* Signal breakdown */
+  .signals { margin-top: 18px; }
+  .sig { margin-bottom: 12px; }
+  .sig .top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .sig .bar { height: 7px; background: var(--panel2); border-radius: 5px; overflow: hidden; }
+  .sig .bar > span { display: block; height: 100%; background: var(--accent); }
+  .reasoning { font-size: 13px; color: var(--muted); font-style: italic; margin-top: 14px;
+    padding: 10px 12px; background: var(--panel2); border-radius: 8px; }
+  .cid { font-size: 12px; color: var(--muted); margin-top: 12px; word-break: break-all; }
+
+  .banner { padding: 12px 14px; border-radius: 9px; font-size: 14px; margin-top: 12px; }
+  .banner.ok { background: rgba(54,211,153,.12); border: 1px solid var(--human); color: var(--human); }
+  .banner.err { background: rgba(255,107,107,.12); border: 1px solid var(--ai); color: var(--ai); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+  td.mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .pill { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .pill.likely_ai { background: rgba(255,107,107,.18); color: var(--ai); }
+  .pill.likely_human { background: rgba(54,211,153,.18); color: var(--human); }
+  .pill.uncertain { background: rgba(251,191,36,.18); color: var(--uncertain); }
+  .pill.appeal { background: rgba(108,140,255,.18); color: var(--accent); }
+  .pill.under_review { background: rgba(251,191,36,.18); color: var(--uncertain); }
+  .pill.classified { background: var(--panel2); color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🛡️ Provenance Guard</h1>
+    <p>Content attribution — is this text human-written or AI-generated?</p>
+  </header>
+
+  <!-- Submit -->
+  <div class="card">
+    <h2>Submit content for analysis</h2>
+    <label for="text">Text</label>
+    <textarea id="text" rows="6" placeholder="Paste a poem, story excerpt, or blog post…"></textarea>
+    <div class="examples">
+      Try an example:
+      <button type="button" onclick="fillExample('ai')">AI-ish sample</button>
+      <button type="button" onclick="fillExample('human')">Human-ish sample</button>
+    </div>
+    <label for="creator">Creator ID</label>
+    <input type="text" id="creator" value="test-user-1">
+    <div class="row" style="margin-top:16px;">
+      <button id="analyzeBtn" onclick="analyze()">Analyze</button>
+      <span id="loading" class="hidden" style="color:var(--muted);font-size:13px;">Running both signals…</span>
+    </div>
+  </div>
+
+  <!-- Result -->
+  <div class="card hidden" id="resultCard">
+    <h2>Transparency label (what a reader sees)</h2>
+    <div id="label" class="label"></div>
+
+    <div class="meter-label"><span>Confidence</span><span id="confPct"></span></div>
+    <div class="meter"><span id="confBar"></span></div>
+
+    <div class="signals">
+      <h2 style="margin-top:18px;">Signal breakdown</h2>
+      <div class="sig">
+        <div class="top"><span>Signal 1 — LLM classifier (semantic)</span><span id="llmVal"></span></div>
+        <div class="bar"><span id="llmBar"></span></div>
+      </div>
+      <div class="sig">
+        <div class="top"><span>Signal 2 — Stylometric heuristics (structural)</span><span id="styloVal"></span></div>
+        <div class="bar"><span id="styloBar"></span></div>
+      </div>
+      <div class="sig">
+        <div class="top"><span><strong>Combined AI score</strong></span><span id="combVal"></span></div>
+        <div class="bar"><span id="combBar"></span></div>
+      </div>
+      <div class="reasoning" id="reasoning"></div>
+      <div class="cid" id="cid"></div>
+    </div>
+  </div>
+
+  <!-- Appeal -->
+  <div class="card hidden" id="appealCard">
+    <h2>Contest this classification</h2>
+    <label for="reasoning">Your reasoning</label>
+    <textarea id="appealText" rows="3" placeholder="Explain why you believe this classification is wrong…">I wrote this myself from personal experience.</textarea>
+    <div class="row" style="margin-top:14px;">
+      <button onclick="appeal()">Submit appeal</button>
+    </div>
+    <div id="appealBanner"></div>
+  </div>
+
+  <!-- Audit log -->
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h2 style="margin:0;">Audit log</h2>
+      <button class="ghost" onclick="loadLog()">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;margin-top:14px;">
+      <table>
+        <thead><tr><th>Time</th><th>Event</th><th>Content</th><th>Attribution</th><th>Conf.</th><th>Status</th></tr></thead>
+        <tbody id="logBody"><tr><td colspan="6" style="color:var(--muted);">Click Refresh to load.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let lastContentId = null;
+
+const EXAMPLES = {
+  ai: "Artificial intelligence represents a transformative paradigm shift in modern society. It is important to note that while the benefits of AI are numerous, it is equally essential to consider the ethical implications. Furthermore, stakeholders across various sectors must collaborate to ensure responsible deployment.",
+  human: "ok so i finally tried that new ramen place downtown and honestly? underwhelming. the broth was fine but they put WAY too much sodium in it and i was thirsty for like three hours after. probably won't go back unless someone drags me there"
+};
+function fillExample(k){ document.getElementById('text').value = EXAMPLES[k]; }
+
+function variantClass(attr){
+  if (attr === 'likely_ai') return 'ai';
+  if (attr === 'likely_human') return 'human';
+  return 'uncertain';
+}
+
+async function analyze(){
+  const text = document.getElementById('text').value.trim();
+  const creator = document.getElementById('creator').value.trim() || 'anonymous';
+  if (!text){ alert('Please enter some text.'); return; }
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true; document.getElementById('loading').classList.remove('hidden');
+  try {
+    const res = await fetch('/submit', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text, creator_id: creator })
+    });
+    if (res.status === 429){ alert('Rate limit hit — slow down (10/min).'); return; }
+    const data = await res.json();
+    renderResult(data);
+    loadLog();
+  } catch(e){ alert('Request failed: ' + e); }
+  finally { btn.disabled = false; document.getElementById('loading').classList.add('hidden'); }
+}
+
+function renderResult(d){
+  lastContentId = d.content_id;
+  const v = variantClass(d.attribution);
+  const lbl = document.getElementById('label');
+  lbl.className = 'label ' + v;
+  lbl.innerHTML = '<div class="head">' + d.label.headline + '</div>' +
+                  '<div class="body">' + d.label.text + '</div>';
+
+  const pct = Math.round(d.confidence * 100);
+  document.getElementById('confPct').textContent = pct + '%';
+  const cb = document.getElementById('confBar');
+  cb.style.width = pct + '%';
+  cb.style.background = v === 'ai' ? 'var(--ai)' : v === 'human' ? 'var(--human)' : 'var(--uncertain)';
+
+  const s = d.signals;
+  setBar('llm', s.llm_score); setBar('stylo', s.stylometric_score); setBar('comb', s.combined_ai_score);
+  document.getElementById('reasoning').textContent = '💬 LLM rationale: ' + s.llm_reasoning;
+  document.getElementById('cid').textContent = 'content_id: ' + d.content_id;
+
+  document.getElementById('resultCard').classList.remove('hidden');
+  document.getElementById('appealCard').classList.remove('hidden');
+  document.getElementById('appealBanner').innerHTML = '';
+}
+function setBar(prefix, val){
+  document.getElementById(prefix+'Val').textContent = Number(val).toFixed(3);
+  document.getElementById(prefix+'Bar').style.width = (val*100) + '%';
+}
+
+async function appeal(){
+  if (!lastContentId){ return; }
+  const reasoning = document.getElementById('appealText').value.trim();
+  if (!reasoning){ alert('Please enter your reasoning.'); return; }
+  const banner = document.getElementById('appealBanner');
+  try {
+    const res = await fetch('/appeal', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content_id: lastContentId, creator_reasoning: reasoning })
+    });
+    const data = await res.json();
+    if (res.ok){
+      banner.className = 'banner ok';
+      banner.textContent = '✓ ' + data.message + ' (status → ' + data.status + ')';
+    } else {
+      banner.className = 'banner err';
+      banner.textContent = '✗ ' + (data.message || 'Appeal failed.');
+    }
+    loadLog();
+  } catch(e){ banner.className = 'banner err'; banner.textContent = 'Request failed: ' + e; }
+}
+
+async function loadLog(){
+  try {
+    const res = await fetch('/log?limit=15');
+    const data = await res.json();
+    const body = document.getElementById('logBody');
+    if (!data.entries.length){ body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No entries yet.</td></tr>'; return; }
+    body.innerHTML = data.entries.map(e => {
+      const time = (e.timestamp || '').replace('T',' ').slice(0,19);
+      const cid = (e.content_id || '').slice(0,8);
+      const attr = e.attribution || e.original_attribution || '—';
+      const conf = (e.confidence ?? e.original_confidence);
+      const confTxt = (conf == null) ? '—' : Math.round(conf*100)+'%';
+      const evPill = e.event_type === 'appeal' ? '<span class="pill appeal">appeal</span>' : 'classify';
+      const attrPill = attr === '—' ? '—' : '<span class="pill '+attr+'">'+attr+'</span>';
+      const statPill = '<span class="pill '+e.status+'">'+e.status+'</span>';
+      return '<tr><td>'+time+'</td><td>'+evPill+'</td><td class="mono">'+cid+'…</td><td>'+attrPill+'</td><td>'+confTxt+'</td><td>'+statPill+'</td></tr>';
+    }).join('');
+  } catch(e){ /* ignore */ }
+}
+</script>
+</body>
+</html>
